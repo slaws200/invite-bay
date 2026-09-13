@@ -123,12 +123,42 @@ export async function runInvites(
     useWSS: true,
   });
 
+  const normalizePhone = (raw: string): string => {
+    const trimmed = raw.trim().replace(/[\s()-]/g, "");
+    if (trimmed.startsWith("00")) return `+${trimmed.slice(2)}`;
+    if (trimmed.startsWith("+")) return trimmed;
+    return `+${trimmed}`;
+  };
+
   try {
+    opts.log("Подключение к Telegram…");
     await client.start({
-      phoneNumber: async () => opts.ask("Номер телефона в международном формате (+7...)", false),
-      phoneCode: async () => opts.ask("Код из Telegram / SMS", false),
+      phoneNumber: async () => {
+        const raw = await opts.ask("Номер телефона в международном формате (+7900…)", false);
+        const phone = normalizePhone(raw);
+        opts.log(`Запрос кода для ${phone}…`);
+        return phone;
+      },
+      phoneCode: async (isCodeViaApp?: boolean) => {
+        if (isCodeViaApp) {
+          opts.log("Код отправлен в приложение Telegram (чат «Telegram»), не в SMS", "ok");
+          return opts.ask("Код из приложения Telegram", false);
+        }
+        opts.log("Код отправлен по SMS", "ok");
+        return opts.ask("Код из SMS", false);
+      },
       password: async () => opts.ask("Пароль двухфакторной аутентификации", true),
-      onError: (err) => opts.log(`Auth: ${errorText(err)}`, "error"),
+      onError: (err) => {
+        const msg = errorText(err);
+        opts.log(`Auth: ${msg}`, "error");
+        const fatal =
+          msg.includes("FLOOD") ||
+          msg.includes("PHONE_NUMBER_BANNED") ||
+          msg.includes("PHONE_NUMBER_INVALID") ||
+          msg.includes("API_ID_INVALID") ||
+          msg.includes("API_ID_PUBLISHED");
+        return fatal;
+      },
     });
 
     saveSession(String(client.session.save()));
