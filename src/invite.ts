@@ -43,12 +43,17 @@ export function parseMembers(text: string): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
   for (const line of text.split(/\r?\n/)) {
-    const raw = line.trim();
+    let raw = line.trim();
     if (!raw || raw.startsWith("#")) continue;
-    const key = raw.toLowerCase().replace(/^@/, "");
+    // "1030. @user" / "12) user" / "1: @user"
+    raw = raw.replace(/^\d+\s*[.\)\-:]\s*/, "").trim();
+    const match = raw.match(/@[A-Za-z]\w{3,31}\b|[A-Za-z]\w{3,31}\b|-?\d{5,}\b/);
+    const token = (match?.[0] || raw.split(/\s+/)[0] || "").trim();
+    if (!token) continue;
+    const key = token.toLowerCase().replace(/^@/, "");
     if (seen.has(key)) continue;
     seen.add(key);
-    out.push(raw);
+    out.push(token);
   }
   return out;
 }
@@ -57,6 +62,89 @@ function normalizeId(value: string): string | number {
   const cleaned = value.trim().replace(/^@/, "");
   if (/^-?\d+$/.test(cleaned)) return Number(cleaned);
   return cleaned;
+}
+
+function targetCandidates(target: string): Array<string | number> {
+  const raw = target.trim();
+  const out: Array<string | number> = [];
+  const push = (v: string | number) => {
+    if (!out.some((x) => String(x) === String(v))) out.push(v);
+  };
+
+  const fromLink = raw
+    .replace(/^https?:\/\//i, "")
+    .replace(/^t\.me\//i, "")
+    .split(/[/?#]/)[0]
+    ?.trim();
+
+  const cleaned = (fromLink && raw.toLowerCase().includes("t.me/") ? fromLink : raw).replace(/^@/, "");
+
+  if (/^\d+$/.test(cleaned)) {
+    push(Number(cleaned));
+    push(Number(`-100${cleaned}`));
+    push(`-100${cleaned}`);
+  } else if (/^-100\d+$/.test(cleaned)) {
+    push(Number(cleaned));
+    push(cleaned);
+    push(Number(cleaned.slice(4)));
+  } else if (/^-\d+$/.test(cleaned)) {
+    push(Number(cleaned));
+    push(cleaned);
+  } else {
+    push(cleaned);
+  }
+
+  return out;
+}
+
+async function resolveTarget(
+  client: TelegramClient,
+  target: string,
+  log: LogFn,
+): Promise<Api.User | Api.Chat | Api.Channel> {
+  const candidates = targetCandidates(target);
+  let lastErr: unknown;
+
+  for (const candidate of candidates) {
+    try {
+      return (await client.getEntity(candidate)) as Api.User | Api.Chat | Api.Channel;
+    } catch (err) {
+      lastErr = err;
+    }
+  }
+
+  log("Цель не в кэше — загружаю диалоги аккаунта…", "warn");
+  const dialogs = await client.getDialogs({ limit: 500 });
+
+  const want = new Set(candidates.map(String));
+  for (const c of [...want]) {
+    if (/^-100\d+$/.test(c)) want.add(c.slice(4));
+    if (/^\d+$/.test(c)) want.add(`-100${c}`);
+  }
+
+  for (const dialog of dialogs) {
+    const entity = dialog.entity;
+    if (!entity || !("id" in entity)) continue;
+    const id = String(entity.id);
+    const username =
+      "username" in entity && entity.username ? String(entity.username).toLowerCase() : "";
+    if (want.has(id) || want.has(`-100${id}`) || (username && want.has(username))) {
+      return entity as Api.User | Api.Chat | Api.Channel;
+    }
+  }
+
+  for (const candidate of candidates) {
+    try {
+      return (await client.getEntity(candidate)) as Api.User | Api.Chat | Api.Channel;
+    } catch (err) {
+      lastErr = err;
+    }
+  }
+
+  const detail = lastErr ? errorText(lastErr) : "unknown";
+  throw new Error(
+    `Не найден канал/группа «${target}». Укажите @username или откройте его в Telegram с этого аккаунта (нужен доступ админа). Детали: ${detail}`,
+  );
 }
 
 function sleep(ms: number, signal: AbortSignal): Promise<void> {
@@ -164,7 +252,8 @@ export async function runInvites(
     saveSession(String(client.session.save()));
     opts.log("Авторизация успешна", "ok");
 
-    const channel = await client.getEntity(params.target);
+    const channel = await resolveTarget(client, params.target, opts.log);
+    opts.log(`Цель найдена: ${"title" in channel ? channel.title : params.target}`, "ok");
 
     for (let i = 0; i < members.length; i += 1) {
       if (opts.signal.aborted) {

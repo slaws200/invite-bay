@@ -163,7 +163,7 @@ function mount(): void {
   dryRun.checked = saved.dryRun;
 
   const members = el("textarea", {
-    placeholder: "username\n@user2\n123456789",
+    placeholder: "1030. @user\n@user2\n123456789",
     spellcheck: "false",
   }) as HTMLTextAreaElement;
   members.value = saved.members;
@@ -334,7 +334,10 @@ function mount(): void {
           el("div", { class: "field" }, [el("label", { text: "API_ID" }), apiId]),
           el("div", { class: "field" }, [el("label", { text: "API_HASH" }), apiHash]),
         ]),
-        el("div", { class: "field" }, [el("label", { text: "Канал / супергруппа" }), target]),
+        el("div", { class: "field" }, [
+          el("label", { text: "Канал / супергруппа" }),
+          target,
+        ]),
       ]),
       el("p", { class: "hint" }, [
         "Ключи: ",
@@ -344,7 +347,7 @@ function mount(): void {
           rel: "noopener noreferrer",
           text: "my.telegram.org/apps",
         }),
-        " · аккаунт должен быть админом с Invite Users",
+        " · лучше @username; по ID аккаунт должен уже видеть канал · нужен Invite Users",
       ]),
     ]),
 
@@ -365,7 +368,7 @@ function mount(): void {
     el("section", { class: "panel" }, [
       el("h2", { text: "Список" }),
       el("div", { class: "field" }, [
-        el("label", { text: "Username или user id — по одному на строку" }),
+        el("label", { text: "Username / id — по одному на строку (можно с нумерацией 1030. @user)" }),
         members,
       ]),
       el("p", {
