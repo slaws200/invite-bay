@@ -148,7 +148,7 @@ export async function runInvites(
         return opts.ask("Код из SMS", false);
       },
       password: async () => opts.ask("Пароль двухфакторной аутентификации", true),
-      onError: (err) => {
+      onError: async (err) => {
         const msg = errorText(err);
         opts.log(`Auth: ${msg}`, "error");
         const fatal =
